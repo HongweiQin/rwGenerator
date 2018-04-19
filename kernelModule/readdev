@@ -1,0 +1,4 @@
+#!/bin/bash
+set -x
+echo "r "$1" "$2 > /proc/rwGen
+
