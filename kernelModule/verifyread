@@ -1,0 +1,4 @@
+#!/bin/bash
+set -x
+echo "rv "$1" "$2" "$3 > /proc/rwGen
+

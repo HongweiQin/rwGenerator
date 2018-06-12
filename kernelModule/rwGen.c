@@ -110,11 +110,23 @@ static void handle_open(char *fname,int maxlen){
 static void handle_read(char *comm){
 	unsigned long startPN,nrPages;
 	unsigned long i;
+	int j;
 	struct bio *bio;
 	struct page *page;
+	int verify;
+	unsigned long verifyNum;
+	int pageErr;
+	unsigned long *pagebase;
 	if(!bdev)
 		return;
-	sscanf(comm,"%lu %lu",&startPN,&nrPages);
+	verify=0;
+	if(comm[0]=='v'){
+		verify = 1;
+		sscanf(comm+2,"%lu %lu %lu",&startPN,&nrPages,&verifyNum);
+	}
+	else{
+		sscanf(comm+1,"%lu %lu",&startPN,&nrPages);
+	}
 	if(nrPages>MAXNRPAGES)
 		nrPages = MAXNRPAGES;
 	
@@ -131,22 +143,56 @@ static void handle_read(char *comm){
 		bio_add_page(bio,page,PAGE_SIZE,0);
 	}
 	submit_bio(bio);
-	pr_notice("r %lu %lu finished\n",startPN,nrPages);
+	if(verify){
+		for(i=0;i<nrPages;i++){
+			pagebase = (unsigned long *) rwbuffer + (i<<12);
+			pageErr=0;
+			for(j=0;j<64;j++){
+				if(pagebase[j] != verifyNum)
+					pageErr=1;
+			}
+			if(pageErr){
+				pr_notice("page[%lu+%lu]'s data corrupted\n",startPN,i);
+				pr_notice("-----Dump64BData-----\n");
+				for(j=0;j<8;j++)
+					pr_notice("0x%lx\n",pagebase[j]);
+				pr_notice("-----DumpFinished-----\n");
+			}
+		}
+		pr_notice("rv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
+	}
+	else{
+		pr_notice("r %lu %lu finished\n",startPN,nrPages);
+	}
 	return;
 }
 
-//usage: w(s) startPageNumber nrPages
+//usage: w(s)(v) startPageNumber nrPages (verifyNum)
 static void handle_write(char *comm){
 	unsigned long startPN,nrPages;
 	unsigned long i;
 	struct bio *bio;
 	struct page *page;
 	unsigned issync=0;
+	int verify;
+	unsigned long verifyNum;
+	unsigned long *pagebase;
+	int j;
+	char *pch = comm;
 	if(!bdev)
 		return;
-	if(comm[0]=='s')
+	if(comm[0]=='s'){
 		issync=REQ_SYNC;
-	sscanf(comm+1,"%lu %lu",&startPN,&nrPages);
+		pch++;
+	}
+	if(*pch=='v'){
+		verify = 1;
+		sscanf(pch+2,"%lu %lu %lu",&startPN,&nrPages,&verifyNum);
+	}
+	else{
+		verify = 0;
+		sscanf(pch+1,"%lu %lu",&startPN,&nrPages);
+	}
 	if(nrPages>MAXNRPAGES)
 		nrPages = MAXNRPAGES;
 
@@ -162,9 +208,17 @@ static void handle_write(char *comm){
 		page = virt_to_page(rwbuffer+(i<<12));
 		bio_add_page(bio,page,PAGE_SIZE,0);
 		set_page_writeback(page);
+		if(verify){
+			pagebase = (unsigned long *) rwbuffer+(i<<12);
+			for(j=0;j<64;j++)
+				pagebase[j] = verifyNum;
+		}
 	}
 	submit_bio(bio);
-	pr_notice("w %lu %lu finished\n",startPN,nrPages);
+	if(verify)
+		pr_notice("wv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
+	else
+		pr_notice("w %lu %lu finished\n",startPN,nrPages);
 	return;
 }
 
@@ -182,7 +236,7 @@ static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t 
 			handle_close();
 			break;
 		case 'r':
-			handle_read(usrCommand+2);
+			handle_read(usrCommand+1);
 			break;
 		case 'w':
 			handle_write(usrCommand+1);
