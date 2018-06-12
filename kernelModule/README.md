@@ -8,5 +8,7 @@ usage:
 # ./readdev @startPageNumber @nrPages
 # ./writedev @startPageNumber @nrPages
 # ./wsdev @startPageNumber @nrPages
+# ./verifywrite @startPageNumber @nrPages @verifyNumber
+# ./verifyread @startpageNumber @nrPages @verifyNumber
 # ./remove
 ```
