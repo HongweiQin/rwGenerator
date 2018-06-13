@@ -140,7 +140,7 @@ static void handle_read(char *comm){
 	bio_set_op_attrs(bio, REQ_OP_READ, 0);
 	for(i=0;i<nrPages;i++){
 		page = virt_to_page(rwbuffer+(i<<12));
-		pagebase = (unsigned long *) rwbuffer + (i<<12);
+		pagebase = (unsigned long *) (rwbuffer + (i<<12));
 		bio_add_page(bio,page,PAGE_SIZE,0);
 		for(j=0;j<64;j++)
 			pagebase[j] = j;
@@ -149,7 +149,7 @@ static void handle_read(char *comm){
 	submit_bio(bio);
 	if(verify){
 		for(i=0;i<nrPages;i++){
-			pagebase = (unsigned long *) rwbuffer + (i<<12);
+			pagebase = (unsigned long *) (rwbuffer + (i<<12));
 			pageErr=0;
 			for(j=0;j<64;j++){
 				if(pagebase[j] != verifyNum)
@@ -213,7 +213,7 @@ static void handle_write(char *comm){
 		bio_add_page(bio,page,PAGE_SIZE,0);
 		set_page_writeback(page);
 		if(verify){
-			pagebase = (unsigned long *) rwbuffer+(i<<12);
+			pagebase = (unsigned long *) (rwbuffer+(i<<12));
 			for(j=0;j<64;j++)
 				pagebase[j] = verifyNum;
 		}
