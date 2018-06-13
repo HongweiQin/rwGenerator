@@ -140,7 +140,11 @@ static void handle_read(char *comm){
 	bio_set_op_attrs(bio, REQ_OP_READ, 0);
 	for(i=0;i<nrPages;i++){
 		page = virt_to_page(rwbuffer+(i<<12));
+		pagebase = (unsigned long *) rwbuffer + (i<<12);
 		bio_add_page(bio,page,PAGE_SIZE,0);
+		for(j=0;j<64;j++)
+			pagebase[j] = j;
+		
 	}
 	submit_bio(bio);
 	if(verify){
