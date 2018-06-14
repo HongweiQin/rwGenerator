@@ -46,6 +46,7 @@ static void rGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
 	int i;
+	pr_notice("%s\n",__FUNCTION__);
 	bio_for_each_segment_all(bv, bio, i) {
 		struct page *page = bv->bv_page;
 		if (!bio->bi_status) {
@@ -64,6 +65,7 @@ static void wGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
 	int i;
+	pr_notice("%s\n",__FUNCTION__);
 	bio_for_each_segment_all(bv, bio, i) {
 		struct page *page = bv->bv_page;
 		if (bio->bi_status) {
@@ -117,6 +119,7 @@ static void handle_read(char *comm){
 	unsigned long verifyNum;
 	int pageErr;
 	unsigned long *pagebase;
+	int error;
 	if(!bdev)
 		return;
 	verify=0;
@@ -140,6 +143,12 @@ static void handle_read(char *comm){
 	bio_set_op_attrs(bio, REQ_OP_READ, 0);
 	for(i=0;i<nrPages;i++){
 		page = virt_to_page(rwbuffer+(i<<12));
+		error = lock_page_killable(page);
+		if (unlikely(error)){
+			pr_err("before readpage, can't lock page!\n");
+			goto readpage_error;
+		}
+		ClearPageUptodate(page);
 		pagebase = (unsigned long *) (rwbuffer + (i<<12));
 		bio_add_page(bio,page,PAGE_SIZE,0);
 		for(j=0;j<64;j++)
@@ -147,6 +156,23 @@ static void handle_read(char *comm){
 		
 	}
 	submit_bio(bio);
+	//wait for completion
+	for(i=0;i<nrPages;i++){
+		page = virt_to_page(rwbuffer+(i<<12));
+		if (!PageUptodate(page)) {
+			error = lock_page_killable(page);
+			if (unlikely(error)){
+				pr_err("waiting for completion, can't lock page!\n");
+				goto readpage_error;
+			}
+			if (!PageUptodate(page)){
+				pr_err("IO error, page not uptodate!\n");
+				goto readpage_error;
+			}
+			unlock_page(page);
+		}
+	}
+	
 	if(verify){
 		for(i=0;i<nrPages;i++){
 			pagebase = (unsigned long *) (rwbuffer + (i<<12));
@@ -168,6 +194,8 @@ static void handle_read(char *comm){
 	else{
 		pr_notice("r %lu %lu finished\n",startPN,nrPages);
 	}
+	return;
+readpage_error:
 	return;
 }
 
