@@ -9,7 +9,8 @@
 #
 # Normal rules
 #
-app/rwGenerator
+userspaceApp/rwGenerator
+userspaceApp/libaio/libaioGen
 .*
 *.o
 *.o.*

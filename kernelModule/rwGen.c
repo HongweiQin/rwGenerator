@@ -46,7 +46,7 @@ static void rGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
 	int i;
-	pr_notice("%s\n",__FUNCTION__);
+	//pr_notice("%s\n",__FUNCTION__);
 	bio_for_each_segment_all(bv, bio, i) {
 		struct page *page = bv->bv_page;
 		if (!bio->bi_status) {
@@ -65,7 +65,7 @@ static void wGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
 	int i;
-	pr_notice("%s\n",__FUNCTION__);
+	//pr_notice("%s\n",__FUNCTION__);
 	bio_for_each_segment_all(bv, bio, i) {
 		struct page *page = bv->bv_page;
 		if (bio->bi_status) {
