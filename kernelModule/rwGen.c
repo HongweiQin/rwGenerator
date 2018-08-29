@@ -65,9 +65,17 @@ static void wGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
 	int i;
+	int first=1;
+	unsigned long buffer=0,count=0;
 	//pr_notice("%s\n",__FUNCTION__);
 	bio_for_each_segment_all(bv, bio, i) {
 		struct page *page = bv->bv_page;
+		count++;
+		if(first){
+			first=0;
+			buffer = (unsigned long)page_address(page);
+			//pr_notice("wGen_endio:buffer=%lu\n",buffer);
+		}
 		if (bio->bi_status) {
 			set_page_dirty(page);
 			SetPageError(page);
@@ -79,6 +87,9 @@ static void wGen_end_io(struct bio *bio)
 		}
 	}
 	bio_put(bio);
+	if(buffer){
+		free_pages(buffer,get_count_order(count));
+	}
 	return;
 }
 
@@ -211,6 +222,7 @@ static void handle_write(char *comm){
 	unsigned long *pagebase;
 	int j;
 	char *pch = comm;
+	unsigned long buffer;
 	if(!bdev)
 		return;
 	if(comm[0]=='s'){
@@ -236,12 +248,14 @@ static void handle_write(char *comm){
 	bio->bi_end_io = wGen_end_io;
 	bio->bi_private = NULL;
 	bio_set_op_attrs(bio, REQ_OP_WRITE|issync, 0);
+	buffer = __get_free_pages(GFP_ATOMIC,get_count_order(nrPages));
+	//pr_notice("allocate buffer=%lu\n",buffer);
 	for(i=0;i<nrPages;i++){
-		page = virt_to_page(rwbuffer+(i<<12));
+		page = virt_to_page(buffer+(i<<12));
 		bio_add_page(bio,page,PAGE_SIZE,0);
 		set_page_writeback(page);
 		if(verify){
-			pagebase = (unsigned long *) (rwbuffer+(i<<12));
+			pagebase = (unsigned long *) (buffer+(i<<12));
 			for(j=0;j<64;j++)
 				pagebase[j] = verifyNum;
 		}
