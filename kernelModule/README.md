@@ -10,5 +10,6 @@ usage:
 # ./wsdev @startPageNumber @nrPages
 # ./verifywrite @startPageNumber @nrPages @verifyNumber
 # ./verifyread @startpageNumber @nrPages @verifyNumber
+# ./writespecial @startPageNumber @nrPages @first_offset
 # ./remove
 ```

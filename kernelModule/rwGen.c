@@ -237,8 +237,11 @@ static void handle_write(char *comm){
 		verify = 0;
 		sscanf(pch+1,"%lu %lu",&startPN,&nrPages);
 	}
-	if(nrPages>MAXNRPAGES)
+	if (nrPages > MAXNRPAGES) {
+		pr_warn("Out of bound nrPages, set it to %d\n",
+							MAXNRPAGES);
 		nrPages = MAXNRPAGES;
+	}
 
 	bio= bio_alloc(GFP_KERNEL,
 				min_t(unsigned long, nrPages, BIO_MAX_PAGES));
@@ -268,6 +271,73 @@ static void handle_write(char *comm){
 	return;
 }
 
+//usage: s startPageNumber nrPages first_offset
+static void handle_special(char *comm){
+	unsigned long startPN,nrPages;
+	unsigned long i;
+	struct bio *bio;
+	struct page *page;
+	unsigned issync=0;
+	unsigned long fst_offset;
+	char *pch = comm;
+	unsigned long buffer;
+	if(!bdev)
+		return;
+
+	sscanf(pch+1, "%lu %lu %lu",
+		&startPN, &nrPages, &fst_offset);
+
+	if (fst_offset >= PAGE_SIZE) {
+		pr_warn("Invalid fst_offset value[%lu], automatically set it to 0\n",
+							fst_offset);
+		fst_offset = 0;
+	}
+	if (fst_offset)
+		nrPages++;
+	if (nrPages > MAXNRPAGES) {
+		pr_warn("Out of bound nrPages, set it to %d. Clear fst_offset to 0\n",
+							MAXNRPAGES);
+		nrPages = MAXNRPAGES;
+		fst_offset = 0;
+	}
+
+	bio= bio_alloc(GFP_KERNEL,
+				min_t(unsigned long, nrPages, BIO_MAX_PAGES));
+	
+	bio_set_dev(bio, bdev);
+	bio->bi_iter.bi_sector = startPN << 3;
+	bio->bi_end_io = wGen_end_io;
+	bio->bi_private = NULL;
+	bio_set_op_attrs(bio, REQ_OP_WRITE|issync, 0);
+	buffer = __get_free_pages(GFP_ATOMIC,get_count_order(nrPages));
+	//pr_notice("allocate buffer=%lu\n",buffer);
+	if (fst_offset) {
+		page = virt_to_page(buffer);
+		bio_add_page(bio,page,PAGE_SIZE-fst_offset,fst_offset);
+		set_page_writeback(page);
+		for(i=1;i<nrPages-1;i++){
+			page = virt_to_page(buffer+(i<<12));
+			bio_add_page(bio,page,PAGE_SIZE,0);
+			set_page_writeback(page);
+		}
+		page = virt_to_page(buffer+((nrPages-1)<<12));
+		bio_add_page(bio,page,fst_offset,0);
+		set_page_writeback(page);
+	} else {
+		for(i=0;i<nrPages;i++){
+			page = virt_to_page(buffer+(i<<12));
+			bio_add_page(bio,page,PAGE_SIZE,0);
+			set_page_writeback(page);
+		}
+	}
+	submit_bio(bio);
+
+	pr_notice("w %lu %lu %lu finished\n",
+				startPN, nrPages, fst_offset);
+	return;
+}
+
+
 static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t count, loff_t *ppos)
 {
 	char usrCommand[512];
@@ -286,6 +356,9 @@ static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t 
 			break;
 		case 'w':
 			handle_write(usrCommand+1);
+			break;
+		case 's':
+			handle_special(usrCommand+1);
 			break;
 	}
 	return count;
