@@ -1,0 +1,8 @@
+#!/bin/bash
+if [ "$1" = "on" ];
+then
+echo "mo" > /proc/rwGen
+elif [ "$1" = "off" ];
+then
+echo "mf" > /proc/rwGen
+fi

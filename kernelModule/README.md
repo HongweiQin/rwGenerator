@@ -13,3 +13,8 @@ usage:
 # ./writespecial @startPageNumber @nrPages @first_offset
 # ./remove
 ```
+To turn on/off printk
+```
+# ./mute on
+# ./mute off
+```

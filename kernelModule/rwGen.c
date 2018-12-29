@@ -41,6 +41,7 @@
 struct block_device *bdev;
 unsigned long rwbuffer;
 fmode_t mode = FMODE_READ|FMODE_WRITE|FMODE_LSEEK;
+int muteState;
 
 static void rGen_end_io(struct bio *bio)
 {
@@ -200,10 +201,12 @@ static void handle_read(char *comm){
 				pr_notice("-----DumpFinished-----\n");
 			}
 		}
-		pr_notice("rv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
+		if(!muteState)
+			pr_notice("rv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
 	}
 	else{
-		pr_notice("r %lu %lu finished\n",startPN,nrPages);
+		if(!muteState)
+			pr_notice("r %lu %lu finished\n",startPN,nrPages);
 	}
 	return;
 readpage_error:
@@ -264,10 +267,12 @@ static void handle_write(char *comm){
 		}
 	}
 	submit_bio(bio);
-	if(verify)
-		pr_notice("wv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
-	else
-		pr_notice("w %lu %lu finished\n",startPN,nrPages);
+	if (!muteState) {
+		if(verify)
+			pr_notice("wv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
+		else
+			pr_notice("w %lu %lu finished\n",startPN,nrPages);
+	}
 	return;
 }
 
@@ -332,8 +337,21 @@ static void handle_special(char *comm){
 	}
 	submit_bio(bio);
 
-	pr_notice("w %lu %lu %lu finished\n",
+	if(!muteState)
+		pr_notice("w %lu %lu %lu finished\n",
 				startPN, nrPages, fst_offset);
+	return;
+}
+
+//usage: mo/mf : mute on/off
+static void handle_mute(char *comm){
+
+	if (*comm == 'o')
+		muteState = 1;
+	else if(*comm == 'f')
+		muteState = 0;
+
+	pr_notice("Mute %s\n", muteState?"on":"off");
 	return;
 }
 
@@ -360,6 +378,9 @@ static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t 
 		case 's':
 			handle_special(usrCommand+1);
 			break;
+		case 'm':
+			handle_mute(usrCommand+1);
+			break;
 	}
 	return count;
 }
@@ -377,6 +398,7 @@ static const struct file_operations rwGen_proc_fops = {
 static int __init rwGen_init(void)
 {
 	pr_notice("rwGen init\n");
+	muteState = 0;
 	bdev=NULL;
 	rwbuffer = __get_free_pages(GFP_KERNEL,MAXNRPAGES_ORDER);
 	if(!rwbuffer)
