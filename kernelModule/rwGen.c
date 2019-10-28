@@ -46,9 +46,10 @@ int muteState;
 static void rGen_end_io(struct bio *bio)
 {
 	struct bio_vec *bv;
+	struct bvec_iter_all iter_all;
 	int i;
 	//pr_notice("%s\n",__FUNCTION__);
-	bio_for_each_segment_all(bv, bio, i) {
+	bio_for_each_segment_all(bv, bio, i, iter_all) {
 		struct page *page = bv->bv_page;
 		if (!bio->bi_status) {
 			SetPageUptodate(page);
@@ -64,12 +65,14 @@ static void rGen_end_io(struct bio *bio)
 
 static void wGen_end_io(struct bio *bio)
 {
+	struct bvec_iter_all iter_all;
 	struct bio_vec *bv;
 	int i;
 	int first=1;
 	unsigned long buffer=0,count=0;
+
 	//pr_notice("%s\n",__FUNCTION__);
-	bio_for_each_segment_all(bv, bio, i) {
+	bio_for_each_segment_all(bv, bio, i, iter_all) {
 		struct page *page = bv->bv_page;
 		count++;
 		if(first){
