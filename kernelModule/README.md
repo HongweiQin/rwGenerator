@@ -1,5 +1,5 @@
 # kernel module of read/write generator
-Tested: CentOS7, kernel version: 4.14.0
+Tested: CentOS7, kernel version: 4.16.0
 
 usage:
 ```
