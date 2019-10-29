@@ -25,6 +25,8 @@
 #include <linux/slab.h>
 #include <linux/t10-pi.h>
 #include <linux/types.h>
+#include <linux/syscalls.h>
+
 //#include <scsi/sg.h>
 //#include <asm-generic/io-64-nonatomic-lo-hi.h>
 
@@ -279,6 +281,103 @@ static void handle_write(char *comm){
 	return;
 }
 
+int blkdev_issue_discard_test(struct block_device *bdev, sector_t sector,
+		sector_t nr_sects, gfp_t gfp_mask, unsigned long flags)
+{
+	struct bio *bio = NULL;
+	struct blk_plug plug;
+	int ret;
+
+	blk_start_plug(&plug);
+	ret = __blkdev_issue_discard(bdev, sector, nr_sects, gfp_mask, flags,
+			&bio);
+	pr_notice("%s, ret=%d\n",
+				__func__, ret);
+	if (!ret && bio) {
+		ret = submit_bio_wait(bio);
+		if (ret == -EOPNOTSUPP)
+			ret = 0;
+		bio_put(bio);
+	}
+	blk_finish_plug(&plug);
+
+	return ret;
+}
+
+
+int blkdev_ioctl_test(struct block_device *bdev, fmode_t mode, unsigned cmd,
+			unsigned long arg)
+{
+	uint64_t range[2];
+	uint64_t start, len;
+	unsigned long flags = BLKDEV_DISCARD_SECURE;
+	struct request_queue *q = bdev_get_queue(bdev);
+	struct address_space *mapping = bdev->bd_inode->i_mapping;
+
+
+	if (!(mode & FMODE_WRITE)) {
+		pr_notice("%s, 1\n", __func__);
+		return -EBADF;
+	}
+
+	if (!blk_queue_discard(q)) {
+		pr_notice("%s, 2\n", __func__);
+		return -EOPNOTSUPP;
+	}
+
+	if (copy_from_user(range, (void __user *)arg, sizeof(range))) {
+		pr_notice("%s, 3\n", __func__);
+		return -EFAULT;
+	}
+
+	start = range[0];
+	len = range[1];
+
+	pr_notice("%s, start0x%llx len0x%llx\n",
+				__func__, start, len);
+
+	if (start & 511)
+		return -EINVAL;
+	if (len & 511)
+		return -EINVAL;
+
+	if (start + len > i_size_read(bdev->bd_inode)) {
+		pr_notice("%s, 4 isize %lld\n",
+				__func__, i_size_read(bdev->bd_inode));
+		return -EINVAL;
+	}
+	truncate_inode_pages_range(mapping, start, start + len - 1);
+	return blkdev_issue_discard_test(bdev, start >> 9, len >> 9,
+				    GFP_KERNEL, flags);
+}
+
+
+
+//usage: d startPageNumber nrPages
+static void handle_discard(char *comm){
+	uint64_t range[2];
+	int ret;
+	mm_segment_t old_fs;
+
+	sscanf(comm + 1,"%llu%llu",
+				&range[0], &range[1]);
+	if (range[1] > MAXNRPAGES) {
+		pr_warn("Out of bound nrPages, set it to %d\n",
+							MAXNRPAGES);
+		range[1] = MAXNRPAGES;
+	}
+	range[0] <<= 12;
+	range[1] <<= 12;
+	old_fs = get_fs();
+    set_fs(KERNEL_DS);
+	ret = blkdev_ioctl_test(bdev, mode, BLKSECDISCARD, (unsigned long)range);
+	set_fs(old_fs);
+	if (!muteState) {
+		pr_notice("d %llu %llu finished, ret=%d\n",
+					range[0], range[1], ret);
+	}
+}
+
 //usage: s startPageNumber nrPages first_offset
 static void handle_special(char *comm){
 	unsigned long startPN,nrPages;
@@ -377,6 +476,9 @@ static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t 
 			break;
 		case 'w':
 			handle_write(usrCommand+1);
+			break;
+		case 'd':
+			handle_discard(usrCommand+1);
 			break;
 		case 's':
 			handle_special(usrCommand+1);
