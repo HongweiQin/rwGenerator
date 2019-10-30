@@ -1,4 +1,5 @@
-#include<stdio.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <unistd.h>
 #include <sys/types.h>
@@ -11,6 +12,15 @@
 #endif
 #ifndef BLKSECDISCARD
 #define BLKSECDISCARD	_IO(0x12,125)
+#endif
+#ifndef BLKGETSIZE
+#define BLKGETSIZE	_IO(0x12,96)
+#endif
+#ifndef BLKGETSIZE64
+#define BLKGETSIZE64	_IOR(0x12,114, size_t)
+#endif
+#ifndef BLKSSZGET
+#define BLKSSZGET	_IO(0x12,104)
 #endif
 
 
@@ -26,7 +36,9 @@ ssize_t read(int fd, void *buf, size_t count);
 ssize_t write(int fd, const void *buf, size_t count);
 int ioctl(int fd, unsigned long request, ...);
 */
-#define BUFSIZE 65536
+//#define BUFSIZE 65536
+#define BUFSIZE 4194304
+
 
 int main(int argc,char *argv[]){
 	int fd;
@@ -35,7 +47,7 @@ int main(int argc,char *argv[]){
 	unsigned long start, len;
 	unsigned long lseekret, rwret;
 	int discardret;
-	char buf[BUFSIZE];
+	char *buf;
 	unsigned long long range[2];
 	struct stat stat_buf;
 	int fstatret;
@@ -44,6 +56,13 @@ int main(int argc,char *argv[]){
 		printf("usage: rwGenerator @path_to_file\n");
 		return 0;
 	}
+
+	buf = (char *)malloc(BUFSIZE);
+	if (!buf) {
+		printf("malloc %lu failed\n", BUFSIZE);
+		return 0;
+	}
+	
 	filepath = argv[1];
 	fd = open(filepath,O_RDWR);
 	if(fd==-1){
@@ -58,7 +77,7 @@ int main(int argc,char *argv[]){
 			goto others;
 		scanf("%lu%lu",&start,&len);
 		getchar();
-		if(len>65536){
+		if(len>BUFSIZE){
 			printf("lenInBytes exceeds %lu\n",BUFSIZE);
 			continue;
 		}
@@ -89,15 +108,46 @@ others:
 		} else if(op=='s') {
 			getchar();
 			fstatret = fstat(fd, &stat_buf);
-			printf("fstat ret=%d, dev[%lu] ino[%lu] mode[0x%x]\n",
+			printf("fstat ret=%d, dev[%lu] ino[%lu] mode[0x%x] size[%ld]\n",
 						fstatret, stat_buf.st_dev,
-						stat_buf.st_ino, stat_buf.st_mode);
+						stat_buf.st_ino, stat_buf.st_mode,
+						stat_buf.st_size);
+		} else if(op=='i') {
+			int cmd;
+			int ret;
+			unsigned int total_sectors, sector_size;
+			unsigned long ts;
+
+			scanf("%d", &cmd);
+			getchar();
+			switch (cmd)
+			{
+			case 1:
+				//BLKSSZGET
+				ret = ioctl(fd, BLKSSZGET, &sector_size);
+				printf("BLKSSZGET ret[%d] sectorsize[%u]\n",
+						ret, sector_size);
+				break;
+			case 2:
+				//BLKGETSIZE
+				ret = ioctl(fd, BLKGETSIZE, &total_sectors);
+				printf("BLKGETSIZE ret[%d] total_sectors[%u]\n",
+						ret, total_sectors);
+				break;
+			case 3:
+				//BLKGETSIZE64
+				ret = ioctl(fd, BLKGETSIZE64, &ts);
+				printf("BLKGETSIZE64 ret[%d] ts[%lu]\n",
+						ret, ts);
+				break;
+			}
 		} else {
 			break;
 		}
 	}
 	
 	printf("closing file\n");
+	free((void *)buf);
 	close(fd);
 	return 0;
 }
