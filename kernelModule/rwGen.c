@@ -218,14 +218,14 @@ readpage_error:
 	return;
 }
 
-//usage: w(s)(v) startPageNumber nrPages (verifyNum)
+//usage: w(s)(v)(p)(f) startPageNumber nrPages (verifyNum)
 static void handle_write(char *comm){
 	unsigned long startPN,nrPages;
 	unsigned long i;
 	struct bio *bio;
 	struct page *page;
-	unsigned issync=0;
-	int verify;
+	unsigned bioflag = 0;
+	int verify = 0;
 	unsigned long verifyNum;
 	unsigned long *pagebase;
 	int j;
@@ -233,18 +233,31 @@ static void handle_write(char *comm){
 	unsigned long buffer;
 	if(!bdev)
 		return;
-	if(comm[0]=='s'){
-		issync=REQ_SYNC;
+
+continue_parse:
+	switch (*pch)
+	{
+	case 's':
+		bioflag |= REQ_SYNC;
 		pch++;
-	}
-	if(*pch=='v'){
+		goto continue_parse;
+	case 'v':
 		verify = 1;
-		sscanf(pch+2,"%lu %lu %lu",&startPN,&nrPages,&verifyNum);
+		pch++;
+		goto continue_parse;
+	case 'f':
+		bioflag |= REQ_FUA;
+		pch++;
+		goto continue_parse;
+	case 'p':
+		bioflag |= REQ_PREFLUSH;
+		pch++;
+		goto continue_parse;
+	default:
+		break;
 	}
-	else{
-		verify = 0;
-		sscanf(pch+1,"%lu %lu",&startPN,&nrPages);
-	}
+
+	sscanf(pch,"%lu %lu",&startPN,&nrPages);
 	if (nrPages > MAXNRPAGES) {
 		pr_warn("Out of bound nrPages, set it to %d\n",
 							MAXNRPAGES);
@@ -258,7 +271,7 @@ static void handle_write(char *comm){
 	bio->bi_iter.bi_sector = startPN << 3;
 	bio->bi_end_io = wGen_end_io;
 	bio->bi_private = NULL;
-	bio_set_op_attrs(bio, REQ_OP_WRITE|issync, 0);
+	bio_set_op_attrs(bio, REQ_OP_WRITE|bioflag, 0);
 	buffer = __get_free_pages(GFP_ATOMIC,get_count_order(nrPages));
 	//pr_notice("allocate buffer=%lu\n",buffer);
 	for(i=0;i<nrPages;i++){
@@ -271,7 +284,19 @@ static void handle_write(char *comm){
 				pagebase[j] = verifyNum;
 		}
 	}
+	pr_notice("%s, submit\n",
+				__func__);
 	submit_bio(bio);
+	pr_notice("%s, return\n",
+				__func__);
+
+
+	for(i=0;i<nrPages;i++){
+		page = virt_to_page(buffer+(i<<12));
+		wait_on_page_writeback(page);
+	}
+	pr_notice("%s, all pages written back\n",
+				__func__);
 	if (!muteState) {
 		if(verify)
 			pr_notice("wv %lu %lu %lu finished\n",startPN,nrPages,verifyNum);
