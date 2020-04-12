@@ -1,0 +1,3 @@
+#!/bin/bash
+set -x
+insmod qiog_install.ko
