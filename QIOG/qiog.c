@@ -42,6 +42,7 @@ char *qiog_holder = "QIOG";
 struct list_head qiog_global_jobs;
 atomic_t jobID;
 struct bio_set qiog_bio_set;
+spinlock_t printSummaryLock;
 
 
 char *op_type_name[] = {
@@ -59,6 +60,8 @@ enum {
 	Opt_pgs_per_rq,
 	Opt_count_based,
 	Opt_time_based,
+	Opt_preflush,
+	Opt_fua,
 	Opt_err,
 };
 
@@ -72,6 +75,8 @@ static match_table_t qiog_tokens = {
 	{Opt_pgs_per_rq, "rqpgs=%u"},
 	{Opt_count_based, "countbased=%u"},
 	{Opt_time_based, "timebased=%u"},
+	{Opt_preflush, "preflush"},
+	{Opt_fua, "fua"},
 	{Opt_err, NULL},
 };
 
@@ -95,6 +100,7 @@ struct qiog_job_cfg {
 	unsigned int cfg_pgs_per_rq;
 	unsigned int cfg_count_based;
 	unsigned int cfg_time_based;
+	unsigned int cfg_flags;
 };
 
 struct qiog_job {
@@ -120,6 +126,7 @@ static void qiog_set_default_cfg(struct qiog_job_cfg *cfg)
 	cfg->cfg_pgs_per_rq = 1;
 	cfg->cfg_count_based = 1;
 	cfg->cfg_time_based = 0;
+	cfg->cfg_flags = 0;
 }
 
 static void qiog_parse_options(struct qiog_job_cfg *cfg,
@@ -209,6 +216,14 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 			pr_notice("set cfg_time_based as %d\n",
 						argi);
 			break;
+		case Opt_preflush:
+			cfg->cfg_flags |= REQ_PREFLUSH;
+			pr_notice("set preflush\n");
+			break;
+		case Opt_fua:
+			cfg->cfg_flags |= REQ_FUA;
+			pr_notice("set fua\n");
+			break;
 		}
 	}
 
@@ -245,7 +260,7 @@ struct bio *qiog_new_bio(struct qiog_job *job,
 	struct qiog_request *req;
 	struct bio *bio;
 	unsigned bio_op;
-	unsigned bio_flags = 0;
+	unsigned bio_flags = cfg->cfg_flags;
 	unsigned int i;
 
 	bio = bio_alloc_bioset(GFP_KERNEL,
@@ -311,6 +326,28 @@ static int qiog_job_should_stop(struct qiog_job *job,
 	return 0;
 }
 
+static void qiog_wait_for_pending_requests(struct qiog_job *job)
+{
+retry:
+	if (atomic_read(&job->on_the_fly) > 0) {
+		msleep(1);
+		goto retry;
+	}
+}
+
+static void qiog_print_summary(struct qiog_job *job)
+{
+	spin_lock(&printSummaryLock);
+	pr_notice("---------RUNNING RESULT OF JOB[%u]-----------\n",
+				job->id);
+	pr_notice("Totally issued = %lu\n",
+					job->total_issued);
+	pr_notice("*********END OF RESULT OF JOB[%u]*********\n",
+				job->id);
+	spin_unlock(&printSummaryLock);
+}
+
+
 static int qiog_job_thread(void *data)
 {
 	struct qiog_job *job = data;
@@ -330,8 +367,12 @@ reset:
 issue_after_sched:
 	job->issued_without_sched = 0;
 	while (!kthread_should_stop()) {
-		if (qiog_job_should_stop(job, cfg))
+		//FIXME: accounting works and wait 4 requests to finish
+		if (qiog_job_should_stop(job, cfg)) {
+			qiog_wait_for_pending_requests(job);
+			qiog_print_summary(job);
 			goto reset;
+		}
 		if (atomic_read(&job->on_the_fly) < cfg->cfg_qd) {
 			bio = qiog_new_bio(job, cfg);
 			if (!bio) {
@@ -491,6 +532,18 @@ void printJob(struct qiog_job *job)
 	pr_notice("op=%s\n", QIOG_OP_NAME(job->cfg.op));
 	pr_notice("start_addr=0x%lx\n", job->cfg.start_addr);
 	pr_notice("end_addr=0x%lx\n", job->cfg.end_addr);
+	pr_notice("cfg_max_issued_without_sched=%u\n",
+			job->cfg.cfg_max_issued_without_sched);
+	pr_notice("cfg_qd=%u\n",
+			job->cfg.cfg_qd);
+	pr_notice("cfg_pgs_per_rq=%u\n",
+			job->cfg.cfg_pgs_per_rq);
+	pr_notice("cfg_count_based=%u\n",
+			job->cfg.cfg_count_based);
+	pr_notice("cfg_time_based=%u\n",
+			job->cfg.cfg_time_based);
+	pr_notice("cfg_flags=0x%x\n",
+			job->cfg.cfg_flags);
 	pr_notice("---------------------------\n");
 }
 
@@ -565,6 +618,7 @@ static int __init qiog_init(void)
 		goto out1;
 	qiog_bdev=NULL;
 	atomic_set(&jobID, 0);
+	spin_lock_init(&printSummaryLock);
 	INIT_LIST_HEAD(&qiog_global_jobs);
 	proc_create("qiog", 0, NULL, &qiog_proc_fops);
 	return 0;
