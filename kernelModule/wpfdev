@@ -1,0 +1,4 @@
+#!/bin/bash
+set -x
+echo "wpf "$1" "$2 > /proc/rwGen
+
