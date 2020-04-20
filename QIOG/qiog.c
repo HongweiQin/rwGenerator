@@ -53,8 +53,8 @@ char *op_type_name[] = {
 
 enum {
 	Opt_iotype,
-	Opt_start_addr,
-	Opt_end_addr,
+	Opt_start_sec,
+	Opt_end_sec,
 	Opt_MIWOS,
 	Opt_qd,
 	Opt_pgs_per_rq,
@@ -69,8 +69,8 @@ enum {
 
 static match_table_t qiog_tokens = {
 	{Opt_iotype, "iotype=%s"},
-	{Opt_start_addr, "sa=%u"},
-	{Opt_end_addr, "ea=%u"},
+	{Opt_start_sec, "ss=%u"},
+	{Opt_end_sec, "es=%u"},
 	{Opt_MIWOS, "miwos=%u"},
 	{Opt_qd, "qd=%u"},
 	{Opt_pgs_per_rq, "rqpgs=%u"},
@@ -95,8 +95,8 @@ struct qiog_request {
 
 struct qiog_job_cfg {
 	enum op_type op;
-	unsigned long start_addr;	//Inclusive. In bytes.
-	unsigned long end_addr;		//Exclusive. In Bytes.
+	unsigned int cfg_start_sec;	//Inclusive. In 512B.
+	unsigned int cfg_end_sec;	//Exclusive. In 512B.
 	unsigned int cfg_max_issued_without_sched;
 	unsigned int cfg_qd;
 	unsigned int cfg_pgs_per_rq;
@@ -128,10 +128,10 @@ struct qiog_global_accounting qiog_ga;
 static void qiog_set_default_cfg(struct qiog_job_cfg *cfg)
 {
 	cfg->op = qiog_read;
-	cfg->start_addr = 0;
+	cfg->cfg_start_sec = 0;
+	cfg->cfg_end_sec = 1 << 21; //1 Gigabytes
 	cfg->cfg_max_issued_without_sched = DEF_MAX_ISSUED_WITHOUT_SCHED;
 	cfg->cfg_qd = DEF_QD;
-	cfg->end_addr = 1 << 30; //1 Gigabytes
 	cfg->cfg_pgs_per_rq = 1;
 	cfg->cfg_count_based = 1;
 	cfg->cfg_time_based = 0;
@@ -177,18 +177,18 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 			}
 			kvfree(name);
 			break;
-		case Opt_start_addr:
+		case Opt_start_sec:
 			if (args->from && match_int(args, &argi))
 				break;
-			cfg->start_addr = (unsigned long)argi;
-			pr_notice("set start_addr as %u\n",
+			cfg->cfg_start_sec = argi;
+			pr_notice("set start_sec as %u\n",
 						argi);
 			break;
-		case Opt_end_addr:
+		case Opt_end_sec:
 			if (args->from && match_int(args, &argi))
 				break;
-			cfg->end_addr = (unsigned long)argi;
-			pr_notice("set end_addr as %u\n",
+			cfg->cfg_end_sec = argi;
+			pr_notice("set end_sec as %u\n",
 						argi);
 			break;
 		case Opt_MIWOS:
@@ -250,15 +250,16 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 
 static void qiog_end_io(struct bio *bio)
 {
-	struct bvec_iter iter;
-	struct bio_vec bv;
+	struct bio_vec *bv;
+	int i;
+	struct bvec_iter_all iter_all;
 	struct qiog_job *job = (struct qiog_job *)bio->bi_private;
 
-	atomic_dec(&job->on_the_fly);
-	bio_for_each_segment(bv, bio, iter) {
-		__free_page(bv.bv_page);
+	bio_for_each_segment_all(bv, bio, i, iter_all) {
+		__free_page(bv->bv_page);
 	}
 	bio_put(bio);
+	atomic_dec(&job->on_the_fly);
 }
 
 //TODO: other ways to generate. Add boundary check.
@@ -266,8 +267,18 @@ static sector_t qiog_req_generate_bio_sec(struct qiog_job *job,
 							struct qiog_job_cfg *cfg)
 {
 	sector_t cu = job->current_sec;
+	sector_t new_sec;
+	sector_t end_sec = cfg->cfg_end_sec;
+	sector_t sec_per_rq = cfg->cfg_pgs_per_rq << 3;
 
-	job->current_sec += cfg->cfg_pgs_per_rq << 3;
+	new_sec = cu + sec_per_rq;
+
+	if (new_sec > end_sec) {
+		cu = cfg->cfg_start_sec;
+		new_sec = cu + sec_per_rq;
+	}
+
+	job->current_sec = new_sec;
 	return cu;
 }
 
@@ -280,7 +291,7 @@ struct bio *qiog_new_bio(struct qiog_job *job,
 	unsigned bio_flags = cfg->cfg_flags;
 	unsigned int i;
 
-	bio = bio_alloc_bioset(GFP_KERNEL,
+	bio = bio_alloc_bioset(GFP_ATOMIC,
 						cfg->cfg_pgs_per_rq,
 						&qiog_bio_set);
 	if (!bio)
@@ -378,7 +389,7 @@ static int qiog_job_thread(void *data)
 
 reset:
 	job->total_issued = 0;
-	job->current_sec = cfg->start_addr>>9;
+	job->current_sec = cfg->cfg_start_sec;
 	atomic_set(&job->on_the_fly, 0);
 	job->issued_without_sched = 0;
 	job->ready = 1;
@@ -553,8 +564,8 @@ void printJob(struct qiog_job *job)
 				job->name, job->id);
 	pr_notice("ready=%d\n", job->ready);
 	pr_notice("op=%s\n", QIOG_OP_NAME(job->cfg.op));
-	pr_notice("start_addr=0x%lx\n", job->cfg.start_addr);
-	pr_notice("end_addr=0x%lx\n", job->cfg.end_addr);
+	pr_notice("start_sec=0x%x\n", job->cfg.cfg_start_sec);
+	pr_notice("end_sec=0x%x\n", job->cfg.cfg_end_sec);
 	pr_notice("cfg_max_issued_without_sched=%u\n",
 			job->cfg.cfg_max_issued_without_sched);
 	pr_notice("cfg_qd=%u\n",
