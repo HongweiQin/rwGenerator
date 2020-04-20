@@ -62,6 +62,7 @@ enum {
 	Opt_time_based,
 	Opt_preflush,
 	Opt_fua,
+	Opt_runtime,
 	Opt_err,
 };
 
@@ -77,6 +78,7 @@ static match_table_t qiog_tokens = {
 	{Opt_time_based, "timebased=%u"},
 	{Opt_preflush, "preflush"},
 	{Opt_fua, "fua"},
+	{Opt_runtime, "runtime=%u"},
 	{Opt_err, NULL},
 };
 
@@ -101,6 +103,7 @@ struct qiog_job_cfg {
 	unsigned int cfg_count_based;
 	unsigned int cfg_time_based;
 	unsigned int cfg_flags;
+	unsigned int cfg_runtime; //In seconds.
 };
 
 struct qiog_job {
@@ -116,6 +119,12 @@ struct qiog_job {
 	int ready;
 };
 
+struct qiog_global_accounting {
+	unsigned long start_time;
+};
+
+struct qiog_global_accounting qiog_ga;
+
 static void qiog_set_default_cfg(struct qiog_job_cfg *cfg)
 {
 	cfg->op = qiog_read;
@@ -126,6 +135,7 @@ static void qiog_set_default_cfg(struct qiog_job_cfg *cfg)
 	cfg->cfg_pgs_per_rq = 1;
 	cfg->cfg_count_based = 1;
 	cfg->cfg_time_based = 0;
+	cfg->cfg_runtime = 30; //30 seconds.
 	cfg->cfg_flags = 0;
 }
 
@@ -224,6 +234,13 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 			cfg->cfg_flags |= REQ_FUA;
 			pr_notice("set fua\n");
 			break;
+		case Opt_runtime:
+			if (args->from && match_int(args, &argi))
+				break;
+			cfg->cfg_runtime = (unsigned)argi;
+			pr_notice("set runtime as %d\n",
+						argi);
+			break;
 		}
 	}
 
@@ -316,12 +333,17 @@ out1:
 	return NULL;
 }
 
+static int qiog_time_expire(struct qiog_job_cfg *cfg)
+{
+	return (jiffies - qiog_ga.start_time >= (unsigned long)cfg->cfg_runtime * HZ);
+}
+
 static int qiog_job_should_stop(struct qiog_job *job,
 							struct qiog_job_cfg *cfg)
 {
 	if (cfg->cfg_count_based && job->total_issued >= 16)
 		return 1;
-	if (cfg->cfg_time_based)//TODO: add time based
+	if (cfg->cfg_time_based && qiog_time_expire(cfg))
 		return 1;
 	return 0;
 }
@@ -367,7 +389,6 @@ reset:
 issue_after_sched:
 	job->issued_without_sched = 0;
 	while (!kthread_should_stop()) {
-		//FIXME: accounting works and wait 4 requests to finish
 		if (qiog_job_should_stop(job, cfg)) {
 			qiog_wait_for_pending_requests(job);
 			qiog_print_summary(job);
@@ -379,9 +400,10 @@ issue_after_sched:
 				schedule();
 				goto issue_after_sched;
 			}
-			submit_bio(bio);
 			job->total_issued++;
 			atomic_inc(&job->on_the_fly);
+			//pr_notice("job [%u] submit bio\n", job->id);
+			submit_bio(bio);
 			if (++job->issued_without_sched >=
 					cfg->cfg_max_issued_without_sched) {
 				schedule();
@@ -443,6 +465,7 @@ recheck:
 			goto recheck;
 		}
 	}
+	WRITE_ONCE(qiog_ga.start_time, jiffies);
 	list_for_each_entry_safe(job, n, &qiog_global_jobs, list) {
 		wake_up_process(job->ts);
 	}
@@ -542,6 +565,8 @@ void printJob(struct qiog_job *job)
 			job->cfg.cfg_count_based);
 	pr_notice("cfg_time_based=%u\n",
 			job->cfg.cfg_time_based);
+	pr_notice("cfg_runtime=%u\n",
+			job->cfg.cfg_runtime);
 	pr_notice("cfg_flags=0x%x\n",
 			job->cfg.cfg_flags);
 	pr_notice("---------------------------\n");
