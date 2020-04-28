@@ -63,6 +63,8 @@ enum {
 	Opt_preflush,
 	Opt_fua,
 	Opt_runtime,
+	Opt_verbose,
+	Opt_nrlog,
 	Opt_err,
 };
 
@@ -79,6 +81,8 @@ static match_table_t qiog_tokens = {
 	{Opt_preflush, "preflush"},
 	{Opt_fua, "fua"},
 	{Opt_runtime, "runtime=%u"},
+	{Opt_verbose, "verbose=%u"},
+	{Opt_nrlog, "nrlog=%u"},
 	{Opt_err, NULL},
 };
 
@@ -90,6 +94,8 @@ enum op_type {
 };
 
 struct qiog_request {
+	struct timespec start_time;
+	struct timespec end_time;
 	struct bio bio; //Must be the last one
 };
 
@@ -104,7 +110,15 @@ struct qiog_job_cfg {
 	unsigned int cfg_time_based;
 	unsigned int cfg_flags;
 	unsigned int cfg_runtime; //In seconds.
+	unsigned int cfg_verbose_accounting;
+	unsigned int cfg_nrlog;
 };
+
+struct qiog_verbose_log {
+	struct timespec start_time;
+	struct timespec end_time;
+};
+
 
 struct qiog_job {
 	struct list_head list;
@@ -117,6 +131,8 @@ struct qiog_job {
 	int issued_without_sched;
 	sector_t current_sec;
 	int ready;
+	struct qiog_verbose_log *logs;
+	atomic_t current_log;
 };
 
 struct qiog_global_accounting {
@@ -137,6 +153,8 @@ static void qiog_set_default_cfg(struct qiog_job_cfg *cfg)
 	cfg->cfg_time_based = 0;
 	cfg->cfg_runtime = 30; //30 seconds.
 	cfg->cfg_flags = 0;
+	cfg->cfg_verbose_accounting = 0;
+	cfg->cfg_nrlog = 1024;
 }
 
 static void qiog_parse_options(struct qiog_job_cfg *cfg,
@@ -161,7 +179,7 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 		args[0].to = args[0].from = NULL;
 		token = match_token(p, qiog_tokens, args);
 
-		pr_notice("p[%s] token[%d]\n", p, token);
+		//pr_notice("p[%s] token[%d]\n", p, token);
 		switch (token) {
 		case Opt_iotype:
 			name = match_strdup(&args[0]);
@@ -241,6 +259,20 @@ static void qiog_parse_options(struct qiog_job_cfg *cfg,
 			pr_notice("set runtime as %d\n",
 						argi);
 			break;
+		case Opt_verbose:
+			if (args->from && match_int(args, &argi))
+				break;
+			cfg->cfg_verbose_accounting = (unsigned)argi;
+			pr_notice("set verbose as %d\n",
+						argi);
+			break;
+		case Opt_nrlog:
+			if (args->from && match_int(args, &argi))
+				break;
+			cfg->cfg_nrlog = (unsigned)argi;
+			pr_notice("set nrlog as %u\n",
+						argi);
+			break;
 		}
 	}
 
@@ -254,12 +286,31 @@ static void qiog_end_io(struct bio *bio)
 	int i;
 	struct bvec_iter_all iter_all;
 	struct qiog_job *job = (struct qiog_job *)bio->bi_private;
+	struct qiog_job_cfg *cfg = &job->cfg;
+	struct qiog_request *req = container_of(bio, struct qiog_request, bio);
+
+	getrawmonotonic(&req->end_time);
+
+	if (cfg->cfg_verbose_accounting) {
+		unsigned int index = 
+			atomic_fetch_add_unless(&job->current_log, 1, cfg->cfg_nrlog);
+
+		if (index < cfg->cfg_nrlog) {
+			struct qiog_verbose_log	*entry
+				= &job->logs[index];
+
+			entry->start_time = req->start_time;
+			entry->end_time = req->end_time;
+		}
+	}
+
+	atomic_dec(&job->on_the_fly);
 
 	bio_for_each_segment_all(bv, bio, i, iter_all) {
 		__free_page(bv->bv_page);
 	}
 	bio_put(bio);
-	atomic_dec(&job->on_the_fly);
+	
 }
 
 //TODO: other ways to generate. Add boundary check.
@@ -282,7 +333,7 @@ static sector_t qiog_req_generate_bio_sec(struct qiog_job *job,
 	return cu;
 }
 
-struct bio *qiog_new_bio(struct qiog_job *job,
+struct qiog_request *qiog_new_bio(struct qiog_job *job,
 							struct qiog_job_cfg *cfg)
 {
 	struct qiog_request *req;
@@ -328,7 +379,7 @@ struct bio *qiog_new_bio(struct qiog_job *job,
 		bio_add_page(bio, page, PAGE_SIZE, 0);
 	}
 
-	return bio;
+	return req;
 out3:
 	do {
 		struct bvec_iter iter;
@@ -370,13 +421,31 @@ retry:
 
 static void qiog_print_summary(struct qiog_job *job)
 {
+	unsigned int i;
+	unsigned int total_logs;
+	struct qiog_verbose_log *log;
+	unsigned long latency, total_latency;
+
 	spin_lock(&printSummaryLock);
-	pr_notice("---------RUNNING RESULT OF JOB[%u]-----------\n",
-				job->id);
-	pr_notice("Totally issued = %lu\n",
+
+	pr_notice("Job %u issued %lu\n",
+					job->id,
 					job->total_issued);
-	pr_notice("*********END OF RESULT OF JOB[%u]*********\n",
-				job->id);
+	total_logs = atomic_read(&job->current_log);
+	total_latency = 0;
+	for (i = 0; i < total_logs; i++) {
+		log = &job->logs[i];
+		latency
+			= timespec_to_ns(&log->end_time) - timespec_to_ns(&log->start_time);
+		pr_notice("%lu\n", latency);
+		total_latency += latency;
+	}
+	if (total_logs) {
+		total_latency /= total_logs;
+		pr_notice("Ave latency %lu nanoseconds\n",
+					total_latency);
+	}
+
 	spin_unlock(&printSummaryLock);
 }
 
@@ -385,17 +454,30 @@ static int qiog_job_thread(void *data)
 {
 	struct qiog_job *job = data;
 	struct qiog_job_cfg *cfg = &job->cfg;
+	struct qiog_request *req;
 	struct bio *bio;
 
+
+	job->logs = NULL;
+	if (cfg->cfg_verbose_accounting) {
+		job->logs =
+			vmalloc(cfg->cfg_nrlog * (sizeof(struct qiog_verbose_log)));
+		if (!job->logs) {
+			pr_err("not enough mem for logs\n");
+			return -ENOMEM;
+		}
+	}
 reset:
+	atomic_set(&job->current_log, 0);
 	job->total_issued = 0;
 	job->current_sec = cfg->cfg_start_sec;
 	atomic_set(&job->on_the_fly, 0);
 	job->issued_without_sched = 0;
 	job->ready = 1;
-	pr_notice("job %u is ready\n", job->id);
+	//pr_notice("job %u is ready\n", job->id);
 	set_current_state(TASK_INTERRUPTIBLE);
 	schedule();
+	job->ready = 0;
 
 issue_after_sched:
 	job->issued_without_sched = 0;
@@ -406,14 +488,16 @@ issue_after_sched:
 			goto reset;
 		}
 		if (atomic_read(&job->on_the_fly) < cfg->cfg_qd) {
-			bio = qiog_new_bio(job, cfg);
-			if (!bio) {
+			req = qiog_new_bio(job, cfg);
+			if (!req) {
 				schedule();
 				goto issue_after_sched;
 			}
+			bio = &req->bio;
 			job->total_issued++;
 			atomic_inc(&job->on_the_fly);
 			//pr_notice("job [%u] submit bio\n", job->id);
+			getrawmonotonic(&req->start_time);
 			submit_bio(bio);
 			if (++job->issued_without_sched >=
 					cfg->cfg_max_issued_without_sched) {
@@ -425,6 +509,9 @@ issue_after_sched:
 			goto issue_after_sched;
 		}
 	}
+
+	if (job->logs)
+		vfree(job->logs);
 
 	return 0;
 }
@@ -580,6 +667,10 @@ void printJob(struct qiog_job *job)
 			job->cfg.cfg_runtime);
 	pr_notice("cfg_flags=0x%x\n",
 			job->cfg.cfg_flags);
+	pr_notice("cfg_verbose_accounting=0x%u\n",
+			job->cfg.cfg_verbose_accounting);
+	pr_notice("cfg_nrlog=0x%u\n",
+			job->cfg.cfg_nrlog);
 	pr_notice("---------------------------\n");
 }
 
