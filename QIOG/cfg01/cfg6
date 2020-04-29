@@ -1,0 +1,17 @@
+#!/bin/bash
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=0 es=4194304 " > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=4194304 es=8388608" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=8388608 es=12582912" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=12582912 es=16777216" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=16777216 es=20971520" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=20971520 es=25165824" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=25165824 es=29360128" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=29360128 es=33554432" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=33554432 es=37748736" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=37748736 es=41943040" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=41943040 es=46137344" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=46137344 es=50331648" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=50331648 es=54525952" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=54525952 es=58720256" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=58720256 es=62914560" > /proc/qiog
+echo "n fua rqpgs=32 iotype=write qd=32 miwos=2 timebased=1 runtime=30 countbased=0 ss=62914560 es=67108864" > /proc/qiog
