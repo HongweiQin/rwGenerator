@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Config 2: Preflush for Job1
+
+echo "n preflush rqpgs=1 iotype=write qd=1 miwos=8 timebased=1 runtime=30 countbased=0 ss=0 es=4194304 " > /proc/qiog
+echo "n rqpgs=8 iotype=write qd=32 miwos=8 timebased=1 runtime=30 countbased=0 ss=4194304 es=8388608" > /proc/qiog
