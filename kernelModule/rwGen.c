@@ -257,7 +257,11 @@ continue_parse:
 		break;
 	}
 
-	sscanf(pch,"%lu %lu",&startPN,&nrPages);
+	if (verify)
+		sscanf(pch,"%lu %lu %lu",&startPN,&nrPages,&verifyNum);
+	else
+		sscanf(pch,"%lu %lu",&startPN,&nrPages);
+
 	if (nrPages > MAXNRPAGES) {
 		pr_warn("Out of bound nrPages, set it to %d\n",
 							MAXNRPAGES);
