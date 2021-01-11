@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "o "$1 > /proc/rwGen 
+
