@@ -1,0 +1,15 @@
+#!/bin/bash
+TMP=./tmp
+
+mkdir -p $TMP
+
+dmesg > $TMP/rawdmesg
+
+cat $TMP/rawdmesg | grep "issued" > $TMP/p1
+
+awk '{printf $5"\t"$7"\n"}' $TMP/p1 > $TMP/p2
+
+cat $TMP/p2
+
+
+
