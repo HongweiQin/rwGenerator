@@ -1,0 +1,15 @@
+[global]
+thread
+kb_base=1000
+direct=1
+size=100%
+group_reporting
+ioengine=libaio
+iodepth=1
+iodepth_batch_submit=1
+iodepth_batch_complete=1
+
+[fio_write]
+rw=write
+bs=4096
+
