@@ -7,13 +7,19 @@ do
 	echo "regression="$i
 	blkdiscard $targetfile
 	sleep 3
-	./testwriteonly.sh tmp/prepare-$i-$k
+	echo "Prepare:"
+	./testwriteonly.sh tmp/prepare-$i-$k 120
+	echo ""
 
+	runningtime=60
 	for k in $(seq 1 $i)
 	do
-		echo "test="$k
-		./testwriteonly.sh tmp/writeonly-$i-$k
-		./testreadwrite.sh tmp/readwrite-$i-$k
+		echo "test="$k""
+		./testwriteonly.sh tmp/writeonly-$i-$k $runningtime
+		echo ""
+		./testreadwrite.sh tmp/readwrite-$i-$k $runningtime
+		echo ""
+		runningtime=`echo $runningtime + 60 | bc`
 	done
 
 	echo "Regression "$i" Done"

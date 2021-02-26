@@ -9,7 +9,6 @@ iodepth=32
 iodepth_batch_submit=1
 iodepth_batch_complete=1
 time_based
-runtime=300s
 numjobs=32
 bs=4096
 
