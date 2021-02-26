@@ -1,9 +1,11 @@
 #!/bin/bash
 
+source ../target
+
 for i in {1..10}
 do
 	echo "i="$i
-	blkdiscard /dev/lrksdev
+	blkdiscard $targetfile
 	rm local-wv-* -f
 	sleep 3
 
