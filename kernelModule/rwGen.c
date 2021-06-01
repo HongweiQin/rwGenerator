@@ -216,6 +216,12 @@ readpage_error:
 	return;
 }
 
+//usage: f
+static void handle_flush(char *comm)
+{
+	blkdev_issue_flush(bdev, GFP_KERNEL, NULL);
+}
+
 //usage: w(s)(v)(p)(f)(n) startPageNumber nrPages (verifyNum)
 static void handle_write(char *comm){
 	unsigned long startPN,nrPages;
@@ -506,6 +512,9 @@ static ssize_t rwGen_write(struct file *file, const char __user *buffer, size_t 
 			break;
 		case 'w':
 			handle_write(usrCommand+1);
+			break;
+		case 'f':
+			handle_flush(usrCommand+1);
 			break;
 		case 'd':
 			handle_discard(usrCommand+1);
